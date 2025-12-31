@@ -9,6 +9,54 @@ The **Agent Service** is the core intelligence engine of the AI Agents platform.
 - **Execution Tracking**: detailed logging of every step, node execution, and state change in MongoDB.
 - **Dynamic Configuration**: specific agent nodes (prompts, models) can be configured dynamically via API.
 
+## 🧠 Agent Architecture
+
+The following diagram illustrates the high-level design of the agent execution flow, including the planning phase, execution loop, and state transitions.
+
+```mermaid
+graph TD
+    START((START)) --> Router{needsPlanning?<br/>Model: gemini-2.0-flash-lite}
+
+    %% Planning Phase & Research Loop
+    Router -- "No Req / Empty" --> LLM[LLM Call <br/> Decision Node <br/> Model: gemini-2.5-flash-lite]
+    Router -- COMPLEX --> Planning[Planning Node <br/> Model: gemini-2.5-flash-lite]
+    Router -- SIMPLE --> LLM
+    
+    Planning -- "Ready to Plan" --> LLM
+    Planning -- "Need Info (Research)" --> Tool[Tool Node]
+
+    %% Main Execution Loop
+    LLM --> Check{shouldContinue?}
+    
+    %% Branches from Decision
+    Check -- "Msg > 12 OR <br/> Size > 200k & Msg > 5" --> Summarize[Summarize Node <br/> Model: gemini-2.0-flash-lite]
+    Check -- "tool_call" --> Tool
+    Check -- "ready_to_reply" --> Final[Final Answer Node <br/> Model: gemini-2.5-flash-lite]
+    Check -- "Steps >= 30 <br/> or No Msg" --> END((END))
+    
+    %% Tool Execution & Replanning & Research Return
+    Tool --> ReplanCheck{shouldReplan?}
+    ReplanCheck -- "Researching (No Plan)" --> Planning
+    ReplanCheck -- "Execution Success" --> LLM
+    ReplanCheck -- "Failure >= 2 <br/> Loop Detected <br/> Steps >= 20" --> Replanner[Replanner Node <br/> Model: gemini-2.5-flash-lite]
+    Replanner -- "New Plan" --> LLM
+    
+    %% Summarization Loop
+    Summarize -- "Context Compressed" --> LLM
+    
+    %% Terminal States
+    Final --> END
+    
+    %% Styling
+    classDef plain fill:#000,stroke:#333,stroke-width:1px;
+    classDef special fill:#000,stroke:#01579b,stroke-width:2px;
+    classDef term fill:#000,stroke:#333,stroke-width:2px;
+    
+    class Planning,LLM,Tool,Replanner,Summarize,Final plain;
+    class Router,Check,ReplanCheck special;
+    class START,END term;
+```
+
 ## 🛠️ Technology Stack
 
 - **Runtime**: Node.js, Express
