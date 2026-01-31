@@ -6,54 +6,73 @@ import type { MCPClient, MCPTool } from './mcp-client.js';
 /**
  * Convert JSON Schema properties to Zod schema
  */
+/**
+ * Convert JSON Schema properties to Zod schema recursively
+ */
 function jsonSchemaToZod(schema: any): z.ZodTypeAny {
-    if (!schema || !schema.properties) {
-        return z.object({});
+    if (!schema) {
+        return z.any();
     }
 
-    const shape: Record<string, z.ZodTypeAny> = {};
+    let zodType: z.ZodTypeAny;
 
-    for (const [key, value] of Object.entries(schema.properties)) {
-        const prop = value as any;
-        let zodType: z.ZodTypeAny;
-
-        // Determine the Zod type based on JSON Schema type
-        switch (prop.type) {
-            case 'string':
-                zodType = z.string();
-                break;
-            case 'number':
-            case 'integer':
-                zodType = z.number();
-                break;
-            case 'boolean':
-                zodType = z.boolean();
-                break;
-            case 'array':
-                zodType = z.array(z.any());
-                break;
-            case 'object':
+    // Handle explicit types
+    switch (schema.type) {
+        case 'string':
+            zodType = z.string();
+            break;
+        case 'number':
+        case 'integer':
+            zodType = z.number();
+            break;
+        case 'boolean':
+            zodType = z.boolean();
+            break;
+        case 'array':
+            const itemSchema = schema.items ? jsonSchemaToZod(schema.items) : z.any();
+            zodType = z.array(itemSchema);
+            break;
+        case 'object':
+            if (schema.properties) {
+                const shape: Record<string, z.ZodTypeAny> = {};
+                for (const [key, value] of Object.entries(schema.properties)) {
+                    let propZod = jsonSchemaToZod(value);
+                    const isRequired = schema.required?.includes(key);
+                    if (!isRequired) {
+                        propZod = propZod.optional();
+                    }
+                    shape[key] = propZod;
+                }
+                zodType = z.object(shape);
+            } else {
+                // Free-form object if no properties defined
                 zodType = z.record(z.string(), z.any());
-                break;
-            default:
+            }
+            break;
+        default:
+            // If type is not specified but properties exist, treat as object (common in root schemas)
+            if (schema.properties) {
+                const shape: Record<string, z.ZodTypeAny> = {};
+                for (const [key, value] of Object.entries(schema.properties)) {
+                    let propZod = jsonSchemaToZod(value);
+                    const isRequired = schema.required?.includes(key);
+                    if (!isRequired) {
+                        propZod = propZod.optional();
+                    }
+                    shape[key] = propZod;
+                }
+                zodType = z.object(shape);
+            } else {
                 zodType = z.any();
-        }
-
-        // Add description if available
-        if (prop.description) {
-            zodType = zodType.describe(prop.description);
-        }
-
-        // Check if the field is required
-        const required = schema.required || [];
-        if (!required.includes(key)) {
-            zodType = (zodType as any).optional();
-        }
-
-        shape[key] = zodType;
+            }
     }
 
-    return z.object(shape);
+    // Add description if available
+    if (schema.description) {
+        zodType = zodType.describe(schema.description);
+    }
+
+    return zodType;
 }
 
 /**
